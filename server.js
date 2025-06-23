@@ -24,7 +24,7 @@ app.post('/openai', async (request, response) => {
 
   const { prompt } = request.body;
   if (!prompt) {
-    return response.status(400).json({ error: 'No prompt was provided.'This });
+    return response.status(400).json({ error: 'No prompt was provided.' });
   }
 
   try {
