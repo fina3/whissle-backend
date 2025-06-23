@@ -1,70 +1,71 @@
-// server.js (Final Production-Ready Code)
+// server.js (Final Version for Express on Render)
 
-// 1. INITIALIZATION
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors'); // <-- Required for CORS
+const cors =require('cors');
+
 const app = express();
-const PORT = process.env.PORT || 3000;
-const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
+const PORT = process.env.PORT || 10000; // Render provides the PORT variable
 
-// 2. MIDDLEWARE
-app.use(cors()); // <-- Use CORS to allow requests from your extension
-app.use(express.raw({ type: '*/*', limit: '50mb' })); // To handle raw audio data
+// --- MIDDLEWARE ---
+// This allows your Chrome extension to talk to this server
+app.use(cors()); 
+// This allows the server to understand incoming JSON data (like our prompt)
+app.use(express.json()); 
 
-// 3. DEEPGRAM API LOGIC
-async function getAnalysisFromDeepgram(audioData, contentType) {
-    if (!DEEPGRAM_API_KEY) {
-        console.error("[FATAL] DEEPGRAM_API_KEY is not defined.");
-        throw new Error("Server is not configured with a Deepgram API Key.");
-    }
-    console.log('[DEEPGRAM] Sending audio for transcription and intent analysis...');
-    const url = new URL("https://api.deepgram.com/v1/listen");
-    url.searchParams.append("model", "nova-2-general");
-    url.searchParams.append("intents", "true");
-    url.searchParams.append("punctuate", "true");
+// --- API ENDPOINT FOR OPENAI ---
+// This is the "door" that your extension will knock on.
+// We are using '/openai' as the path.
+app.post('/openai', async (request, response) => {
+  console.log('[SERVER] Received request at /openai');
 
-    const response = await fetch(url.toString(), {
-        method: "POST",
-        headers: {
-            "Authorization": `Token ${DEEPGRAM_API_KEY}`,
-            "Content-Type": contentType // <-- Important: Pass the audio format
-        },
-        body: audioData
+  // Get the prompt from the request that the extension sent
+  const { prompt } = request.body;
+
+  if (!prompt) {
+    return response.status(400).json({ error: 'No prompt was provided.' });
+  }
+
+  // Get the secret API key from Render's environment variables
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+  if (!OPENAI_API_KEY) {
+    console.error('[SERVER] FATAL: OPENAI_API_KEY is not set on the server.');
+    return response.status(500).json({ error: 'Server is not configured.' });
+  }
+
+  // --- Securely call the OpenAI API ---
+  try {
+    const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+      }),
     });
 
-    if (!response.ok) {
-        const errorBody = await response.text();
-        console.error('[DEEPGRAM] API Error:', errorBody);
-        throw new Error(`Deepgram API failed with status ${response.status}`);
-    }
-    console.log('[DEEPGRAM] Successfully received analysis.');
-    return await response.json();
-}
+    const openAIResult = await openAIResponse.json();
 
-// 4. API ENDPOINT (The "Route" your extension will call)
-app.post('/transcribe', async (req, res) => {
-    console.log(`[SERVER] Received POST request on /transcribe.`);
-    const contentType = req.headers['content-type'];
-    
-    if (!req.body || req.body.length === 0) {
-        return res.status(400).json({ error: "No audio data in request body." });
-    }
-    if (!contentType) {
-        return res.status(400).json({ error: "Content-Type header is missing." });
+    if (!openAIResponse.ok) {
+      // If OpenAI returns an error, send it back to the extension
+      throw new Error(openAIResult.error?.message || 'An error occurred with the OpenAI API.');
     }
 
-    try {
-        const deepgramResult = await getAnalysisFromDeepgram(req.body, contentType);
-        console.log("[SERVER] Sending successful response back to client.");
-        res.status(200).json(deepgramResult);
-    } catch (error) {
-        console.error("[SERVER] Error processing request:", error.message);
-        res.status(500).json({ error: "An internal server error occurred." });
-    }
+    // Send the successful result from OpenAI back to the extension
+    console.log('[SERVER] Sending successful OpenAI response to client.');
+    response.status(200).json(openAIResult);
+
+  } catch (error) {
+    console.error('[SERVER] Error calling OpenAI:', error.message);
+    response.status(500).json({ error: error.message });
+  }
 });
 
-// 5. START THE SERVER
+// --- START THE SERVER ---
 app.listen(PORT, () => {
-    console.log(`✅ Backend server running and listening on http://localhost:${PORT}`);
+  console.log(`✅ Server is running and listening on port ${PORT}`);
 });
