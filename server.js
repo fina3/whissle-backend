@@ -1,17 +1,15 @@
-// server.js (Final Corrected Version)
+// server.js (Corrected Version)
 
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
-const app = express(); // <-- This is the line that was missing
+const app = express();
 const PORT = process.env.PORT || 10000;
 
-// --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json());
 
-// --- API ENDPOINT FOR OPENAI ---
 app.post('/openai', async (request, response) => {
   console.log('[SERVER] Received request at /openai');
 
@@ -31,5 +29,29 @@ app.post('/openai', async (request, response) => {
     const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${userApiKey}`,
+        'Authorization': `Bearer ${userApiKey}`, // Comma is here
         'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const openAIResult = await openAIResponse.json();
+
+    if (!openAIResponse.ok) {
+      throw new Error(openAIResult.error?.message || 'An error occurred with the OpenAI API.');
+    }
+
+    response.status(200).json(openAIResult);
+
+  } catch (error) {
+    console.error('[SERVER] Error calling OpenAI:', error.message);
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Server is running and listening on port ${PORT}`);
+});
